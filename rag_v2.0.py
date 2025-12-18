@@ -126,20 +126,20 @@ def save_manifest(path: str, manifest: Dict[str, str]) -> None:
 # document里有：page_content：文件全文文本 metadata：附带信息（非常重要）
 def load_docs(docs_dir: str, level_key: str) -> List[Document]:
     docs: List[Document] = []
-    p = Path(docs_dir)
-    if not p.exists():
+    p = Path(docs_dir) # 用 pathlib 更方便处理路径
+    if not p.exists(): # 目录不存在就返回空清单（避免报错）
         return docs
 
-    for f in p.rglob("*"):
+    for f in p.rglob("*"): # 递归遍历目录下所有文件/目录
         if f.is_file() and f.suffix.lower() in {".md", ".txt"}:
             text = f.read_text(encoding="utf-8", errors="ignore")
             docs.append(
                 Document(
                     page_content=text,
                     metadata={
-                        "level": level_key,
-                        "source": str(f),
-                        "file_name": f.name,
+                        "level": level_key, # 你传进来的 "primary/middle/high"，后续可做过滤、引用、统计
+                        "source": str(f), # 原文件路径，用于引用输出（你现在就用它做 source#chunk_id）
+                        "file_name": f.name, # 文件名，用于 UI 展示或 debug
                     },
                 )
             )
@@ -150,41 +150,51 @@ def load_docs(docs_dir: str, level_key: str) -> List[Document]:
 # 切块：带 chunk_id，便于引用
 # =========================
 def split_docs(docs: List[Document]) -> List[Document]:
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", "。", ".", " ", ""],
+    # LangChain 提供的“递归切分器”，把每个 Document 的长文本切成很多 chunk（小段文本）
+    splitter = RecursiveCharacterTextSplitter( # 先用粗分隔符试 → 不行就用更细的 → 直到能满足 chunk_size。
+        chunk_size=CHUNK_SIZE, # 太大：检索命中后带很多不相关内容；太小：语义容易断裂
+        chunk_overlap=CHUNK_OVERLAP, #相邻 chunk 的重叠部分长度，避免“关键句刚好切在边界”，导致一边缺上下文
+        separators=["\n\n", # 按段落切
+                    "\n", # 按行切
+                    "。", # 中文句号
+                    ".", # 英文句号
+                    " ", #空格（词间）
+                    ""], 
     )
-    chunks = splitter.split_documents(docs)
-    counter: Dict[str, int] = {}
-    for d in chunks:
-        src = d.metadata.get("source", "unknown")
-        counter[src] = counter.get(src, 0) + 1
-        d.metadata["chunk_id"] = counter[src]
+    chunks = splitter.split_documents(docs) # 每个 Document.page_content 变成了一小段文本
+    counter: Dict[str, int] = {} # 记录“每个 source 已经出现了多少个 chunk”。
+    for d in chunks: # 给每个 chunk 编号，
+        src = d.metadata.get("source", "unknown") # 从 chunk 的 metadata 里拿来源文件路径（你在 load_docs 里写入的）。
+        counter[src] = counter.get(src, 0) + 1 # 每遇到一个来自该文件的 chunk，就加 1。
+        d.metadata["chunk_id"] = counter[src] # 给当前 chunk 打上编号：同一个文件的第 1 块、第 2 块……
     return chunks
 
 
 # =========================
 # 向量库：持久化 + 增量（只新增则 add；改/删则重建，学习阶段最稳）
 # =========================
-def load_or_build_vectorstore(cfg: LevelCfg, embeddings: OllamaEmbeddings) -> FAISS:
-    old = load_manifest(cfg.manifest_path)
-    new = build_manifest(cfg.docs_dir)
+
+# 尽可能复用，能增量就增量；但遇到“改/删”就重建，保证一致性
+def load_or_build_vectorstore(cfg: LevelCfg, #某个 level 的配置（primary/middle/high），里面有：docs_dir：docs 目录，index_dir：FAISS 索引保存目录，manifest_path：manifest 的 json 文件
+                              embeddings: OllamaEmbeddings # embedding 模型（OllamaEmbeddings）
+                              ) -> FAISS:
+    old = load_manifest(cfg.manifest_path) # 上次运行保存的 {path: sha256} 字典
+    new = build_manifest(cfg.docs_dir) # 现在扫描 docs 计算出来的 {path: sha256}
 
     index_dir = Path(cfg.index_dir)
-    can_load = index_dir.exists() and any(index_dir.iterdir())
+    can_load = index_dir.exists() and any(index_dir.iterdir()) # 索引目录存在，并且有东西
 
-    removed = set(old) - set(new)
-    modified = {k for k in new if old.get(k) and old[k] != new[k]}
-    added = {k for k in new if k not in old}
+    removed = set(old) - set(new) # 以前有、现在没有 → 被删除的文件列表
+    modified = {k for k in new if old.get(k) and old[k] != new[k]} # k in new：当前存在的文件，old.get(k)：旧 manifest 里也存在（说明不是新增），old[k] != new[k]：hash 不同 → 内容变了 → 被修改 的文件列表
+    added = {k for k in new if k not in old} # 当前有、旧的没有 → 新增 文件列表
 
-    if can_load:
+    if can_load: # 如果能加载旧索引，就先加载
         try:
             vs = FAISS.load_local(cfg.index_dir, embeddings, allow_dangerous_deserialization=True)
         except TypeError:
             vs = FAISS.load_local(cfg.index_dir, embeddings)
 
-        if added and not modified and not removed:
+        if added and not modified and not removed: # 情况 A：只有新增文件 → 增量 add
             add_docs = [Document(page_content=Path(p).read_text(encoding="utf-8", errors="ignore"),
                                  metadata={"level": cfg.key, "source": p, "file_name": Path(p).name})
                         for p in sorted(added)]
@@ -194,9 +204,10 @@ def load_or_build_vectorstore(cfg: LevelCfg, embeddings: OllamaEmbeddings) -> FA
             save_manifest(cfg.manifest_path, new)
             return vs
 
-        if not modified and not removed and not added:
+        if not modified and not removed and not added: # 情况 B：完全没变化 → 直接复用
             return vs
 
+    # 情况 C：改了或删了（或无法加载）→ 重建
     docs = load_docs(cfg.docs_dir, cfg.key)
     chunks = split_docs(docs)
     vs = FAISS.from_documents(chunks, embeddings)
