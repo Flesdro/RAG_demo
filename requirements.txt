@@ -1,0 +1,5 @@
+langchain
+langchain-ollama
+langchain-text-splitters
+langchain-community
+faiss-cpu
