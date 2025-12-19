@@ -1,1 +1,9 @@
 .DS_Store
+
+.rag_manifest_high.json
+.rag_manifest_middle.json
+.rag_manifest_primary.json
+
+.faiss_high
+.faiss_middle
+.faiss_primary
