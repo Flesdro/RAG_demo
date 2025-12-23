@@ -21,6 +21,18 @@ except Exception:
     solve_math_question = None  # type: ignore
     make_template_query = None  # type: ignore
 
+
+# 新增：用于步骤树（思维链）里的表达式安全解析与计算回填
+try:
+    import sympy as sp  # type: ignore
+    from verifier import build_local_dict, parse_expr_with_local_dict  # type: ignore
+    HAS_SYMPY = True
+except Exception:
+    HAS_SYMPY = False
+    sp = None  # type: ignore
+    build_local_dict = None  # type: ignore
+    parse_expr_with_local_dict = None  # type: ignore
+
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -55,6 +67,13 @@ TEMPERATURE = 0
 
 AUTO_LEVEL_DEFAULT = True
 DEBUG_DEFAULT = True
+
+# ===== Step-Tree / 思维链（可展示）配置 =====
+ENABLE_STEP_TREE_DEFAULT = True  # 新增：是否输出“粗步骤->细步骤->计算项”的步骤树
+STEP_TREE_MAX_COARSE = 6         # 粗步骤最多几步
+STEP_TREE_MAX_SUBSTEPS = 6       # 每个粗步骤展开的子步骤最多几步
+STEP_TREE_EVAL_DEFAULT = True    # 新增：是否用 Sympy 对子步骤 expression 做计算回填 result（更稳）
+
 
 
 @dataclass(frozen=True)
@@ -378,7 +397,7 @@ def build_prompt(level_key: str) -> ChatPromptTemplate:
         SYSTEM_STYLE[level_key],
         INJECTION_GUARD,
         HARD_RULES,
-        "输出格式要求：先给讲解步骤（如有），最后单独一行写：答案：xxx",
+        "输出格式要求：\n1) 先回显题目（问题：...）。\n2) 给【粗步骤】（S1/S2...每步一句）。\n3) 给【细步骤】（按粗步骤展开；需要计算的子步骤写清“要算什么”，并给出算式/代入）。\n4) 最后单独一行写：答案：xxx",
     ])
     return ChatPromptTemplate.from_messages([
         ("system", sys),
@@ -399,18 +418,167 @@ def build_tool_prompt(style_level_key: str) -> ChatPromptTemplate:
         INJECTION_GUARD,
         HARD_RULES,
         "你会收到一个 <tool_result> JSON，它来自推理引擎（Sympy），包含正确的计算/求解结果与校验信息。",
+        "你还会收到一个 <step_tree> JSON（步骤树），它是对题目的“粗步骤->细步骤->计算项”的分解（可作为思维链展示）。",
         "规则：必须以 tool_result 为准；不要编造与 tool_result 冲突的结论。",
         "如果 <context> 中有步骤模板/常错点，可以引用并组织语言；如果没有，也要基于 tool_result 讲清楚。",
-        "输出格式要求：先给讲解步骤（如有），最后单独一行写：答案：xxx",
+        "输出格式要求：\n1) 先回显题目（问题：...）。\n2) 给【粗步骤】（S1/S2...每步一句）。\n3) 给【细步骤】（按粗步骤展开；需要计算的子步骤写清“要算什么”，并给出算式/代入）。\n4) 最后单独一行写：答案：xxx",
     ])
     return ChatPromptTemplate.from_messages([
         ("system", sys),
-        ("human", "问题：{input}\n\n<tool_result>\n{tool}\n</tool_result>\n\n<context>\n{context}\n</context>")
+        ("human", "问题：{input}\n\n<tool_result>\n{tool}\n</tool_result>\n\n<step_tree>\n{step_tree}\n</step_tree>\n\n<context>\n{context}\n</context>")
     ])
 
 # =========================
 # 自动判档：返回 primary/middle/high（只输出一个词）
 # =========================
+
+# =========================
+# 新增：步骤树（可展示的“思维链”）
+# - 目的：先粗分解，再细分解到每步要算什么（expression），可选用 Sympy 回填结果
+# - 注意：这里输出的是“可公开/可核验的推理轨迹”，不是模型内部草稿推理原文
+# =========================
+
+STEP_TREE_COARSE_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "你是数学解题规划器。你会基于题目与工具真值（tool_result）生成粗步骤。\n"
+     "要求：\n"
+     f"- 粗步骤最多 {STEP_TREE_MAX_COARSE} 步（S1..）。\n"
+     "- 只输出 JSON，不要解释，不要 markdown。\n"
+     "- 粗步骤要写清：action（做什么）、inputs（需要什么量/公式）、outputs（会得到什么量）。\n" ),
+    ("human",
+     "题目：{question}\n\n"
+     "<tool_result>\n{tool}\n</tool_result>\n\n"
+     "可用提示（可能为空）：\n{hints}\n\n"
+     "输出严格JSON：\n"
+     "{\n"
+     "  \"given\":[{\"name\":\"\",\"value\":\"\"}],\n"
+     "  \"goal\":\"\",\n"
+     "  \"coarse_steps\":[{\"id\":\"S1\",\"action\":\"\",\"inputs\":[],\"outputs\":[]}]\n"
+     "}" )
+])
+
+STEP_TREE_EXPAND_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "你是数学步骤展开器。你会把粗步骤展开成可执行子步骤（S1.1、S1.2...）。\n"
+     "要求：\n"
+     f"- 每个粗步骤最多展开 {STEP_TREE_MAX_SUBSTEPS} 个子步骤。\n"
+     "- 如果某子步骤需要计算：needs_calc=true，并给出 expression（尽量用 Sympy 可解析的表达式字符串）。\n"
+     "- 不要自己计算 expression 的结果（由程序计算回填）。\n"
+     "- 只输出 JSON，不要解释，不要 markdown。\n" ),
+    ("human",
+     "题目：{question}\n\n"
+     "<tool_result>\n{tool}\n</tool_result>\n\n"
+     "粗步骤JSON：\n{coarse}\n\n"
+     "可用提示（可能为空）：\n{hints}\n\n"
+     "输出严格JSON：\n"
+     "{\n"
+     "  \"expanded_steps\": {\n"
+     "    \"S1\":[{\"id\":\"S1.1\",\"action\":\"\",\"needs_calc\":false}],\n"
+     "    \"S2\":[{\"id\":\"S2.1\",\"action\":\"\",\"needs_calc\":true,\"expression\":\"\",\"symbol_map\":{}}]\n"
+     "  }\n"
+     "}" )
+])
+
+def _extract_json_obj(s: str) -> Optional[dict]:
+    """尽量从 LLM 输出里抠出 JSON 对象并解析。失败返回 None。"""
+    if not s:
+        return None
+    t = s.strip()
+    # 去掉代码块围栏
+    t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE).strip()
+    t = re.sub(r"\s*```$", "", t).strip()
+    # 尝试截取最外层 {...}
+    m = re.search(r"\{.*\}", t, flags=re.S)
+    if m:
+        t = m.group(0)
+    try:
+        return json.loads(t)
+    except Exception:
+        return None
+
+def _hints_from_docs(docs: Optional[List[Document]], max_chars: int = 1200) -> str:
+    """把检索到的模板/常错点简要拼成 hints，给步骤规划器参考。"""
+    if not docs:
+        return ""
+    parts: List[str] = []
+    used = 0
+    for d in docs[:4]:
+        src = d.metadata.get("source", "")
+        txt = (d.page_content or "").strip().replace("\n", " ")
+        if not txt:
+            continue
+        chunk = f"[{Path(src).name if src else 'doc'}] {txt}"
+        if used + len(chunk) > max_chars:
+            chunk = chunk[: max(0, max_chars - used)]
+        parts.append(chunk)
+        used += len(chunk)
+        if used >= max_chars:
+            break
+    return "\n".join(parts)
+
+def build_step_tree(planner_llm: ChatOllama, question: str, tool_result: dict, hint_docs: Optional[List[Document]] = None) -> Optional[dict]:
+    """两段式生成步骤树：先粗步骤，再整体展开。"""
+    hints = _hints_from_docs(hint_docs)
+    coarse_msg = STEP_TREE_COARSE_PROMPT.format_messages(
+        question=question,
+        tool=json.dumps(tool_result, ensure_ascii=False),
+        hints=hints,
+    )
+    coarse_raw = planner_llm.invoke(coarse_msg).content
+    coarse = _extract_json_obj(coarse_raw)
+    if not coarse or "coarse_steps" not in coarse:
+        return None
+
+    expand_msg = STEP_TREE_EXPAND_PROMPT.format_messages(
+        question=question,
+        tool=json.dumps(tool_result, ensure_ascii=False),
+        coarse=json.dumps(coarse, ensure_ascii=False),
+        hints=hints,
+    )
+    expand_raw = planner_llm.invoke(expand_msg).content
+    expanded = _extract_json_obj(expand_raw)
+    if not expanded or "expanded_steps" not in expanded:
+        coarse["expanded_steps"] = {}
+        return coarse
+
+    coarse["expanded_steps"] = expanded.get("expanded_steps", {})
+    return coarse
+
+def eval_step_tree_inplace(step_tree: dict) -> dict:
+    """对 step_tree 里 needs_calc 的 expression 做计算回填 result。"""
+    if not HAS_SYMPY:
+        return step_tree
+    expanded = step_tree.get("expanded_steps") or {}
+    for sid, substeps in expanded.items():
+        if not isinstance(substeps, list):
+            continue
+        for ss in substeps:
+            if not isinstance(ss, dict):
+                continue
+            if not ss.get("needs_calc"):
+                continue
+            expr_text = (ss.get("expression") or "").strip()
+            if not expr_text:
+                continue
+            symbol_map = ss.get("symbol_map") or {}
+            try:
+                # build local dict and parse expression
+                local = build_local_dict(expr_text) if build_local_dict else {}
+                # parse symbol values too (if any)
+                subs = {}
+                for k, v in symbol_map.items():
+                    sym = sp.Symbol(str(k))
+                    subs[sym] = parse_expr_with_local_dict(str(v), local) if parse_expr_with_local_dict else sp.Symbol(str(v))
+                expr = parse_expr_with_local_dict(expr_text, local) if parse_expr_with_local_dict else sp.sympify(expr_text)
+                expr2 = sp.simplify(expr.subs(subs))
+                # 如果已无自由变量，给一个数值近似（更贴近日常“算出来”）
+                if hasattr(expr2, "free_symbols") and len(expr2.free_symbols) == 0:
+                    expr2 = sp.N(expr2)
+                ss["result"] = str(expr2)
+            except Exception as e:
+                ss["result"] = None
+                ss["calc_error"] = str(e)
+    return step_tree
 def llm_route_level(router_llm: ChatOllama, question: str) -> str:
     prompt = (
         "你是分级路由器。根据题目所需数学知识难度，把它分类为：primary / middle / high。\n"
@@ -461,6 +629,7 @@ def main():
     embeddings = OllamaEmbeddings(model=EMBED_MODEL)
     llm = ChatOllama(model=LLM_MODEL, temperature=TEMPERATURE)
     router_llm = ChatOllama(model=LLM_MODEL, temperature=0)
+    planner_llm = ChatOllama(model=LLM_MODEL, temperature=0)  # 新增：用于生成步骤树
 
     # 预加载/构建三套向量库（第一次可能慢）
     stores: Dict[str, FAISS] = {}
@@ -472,6 +641,8 @@ def main():
     chosen_level = "primary"  # 默认小学
     use_mmr = USE_MMR_DEFAULT  # 新增：MMR 开关（默认 on）
     use_solver = USE_SOLVER_DEFAULT  # 新增：推理引擎开关
+    enable_step_tree = ENABLE_STEP_TREE_DEFAULT  # 新增：步骤树（思维链）开关
+    step_tree_eval = STEP_TREE_EVAL_DEFAULT      # 新增：是否对步骤树里的 expression 做计算回填
 
     print("=== Grade RAG Bot (primary/middle/high) ===")
     print("命令：")
@@ -489,6 +660,7 @@ def main():
         "question": None,      # 上一轮“原始题目”
         "docs": None,          # 上一轮 RAG 召回 docs（纯RAG分支）
         "tool": None,          # 上一轮工具解 tool_result（工具分支）
+        "step_tree": None,     # 上一轮步骤树（工具分支，可复用）
         "answer": None,        # 上一轮答案（可选）
         "retrieval_level": None,
         "style_level": None,
@@ -606,6 +778,28 @@ def main():
                 print("用法：/tool on|off  （或 /solver on|off）")
             continue
 
+
+        if q.startswith("/steps") or q.startswith("/step_tree"):
+            parts = q.split()
+            if len(parts) == 2 and parts[1] in {"on", "off"}:
+                enable_step_tree = (parts[1] == "on")
+                print(f"步骤树（思维链）：{'on' if enable_step_tree else 'off'}")
+            else:
+                print("用法：/steps on|off  （或 /step_tree on|off）")
+            continue
+
+        if q.startswith("/step_eval"):
+            parts = q.split()
+            if len(parts) == 2 and parts[1] in {"on", "off"}:
+                step_tree_eval = (parts[1] == "on")
+                if step_tree_eval and not HAS_SYMPY:
+                    print("step_eval：不可用（sympy/verifier 未就绪），已保持 off")
+                    step_tree_eval = False
+                else:
+                    print(f"step_eval：{'on' if step_tree_eval else 'off'}")
+            else:
+                print("用法：/step_eval on|off")
+            continue
         if q.startswith("/debug"):
             parts = q.split()
             if len(parts) == 2 and parts[1] in {"on", "off"}:
@@ -653,7 +847,17 @@ def main():
 
             prompt = build_tool_prompt(style_level)
             chain = create_stuff_documents_chain(llm, prompt)
-            out = chain.invoke({"input": q, "tool": json.dumps(tool_result, ensure_ascii=False), "context": tdocs})
+            # 新增：生成“步骤树”（可展示的思维链）
+            step_tree_obj = (last.get("step_tree") or {}) if followup else {}
+            if enable_step_tree and not step_tree_obj:
+                try:
+                    tmp_tree = build_step_tree(planner_llm, q, tool_result, hint_docs=tdocs)
+                    step_tree_obj = tmp_tree or {}
+                    if step_tree_eval and step_tree_obj:
+                        step_tree_obj = eval_step_tree_inplace(step_tree_obj)
+                except Exception:
+                    step_tree_obj = {}
+            out = chain.invoke({"input": q, "tool": json.dumps(tool_result, ensure_ascii=False), "step_tree": json.dumps(step_tree_obj, ensure_ascii=False), "context": tdocs})
             answer = out if isinstance(out, str) else out.get("output_text", str(out))
 
             print("\nA>", answer)
@@ -663,7 +867,17 @@ def main():
                 print("\n引用：")
                 print(fmt_sources(tdocs))
             if debug:
-                print(f"\n[debug] tool_type={tool_result.get('type')} retrieval_level={retrieval_level} style_level={style_level} template_docs={len(tdocs)}")
+                print(f"\n[debug] tool_type={tool_result.get('type', 'unknown')} retrieval_level={retrieval_level} style_level={style_level} template_docs={len(tdocs)}")
+
+            # 新增：写入 last（用于后续追问复用）
+            last["question"] = original_q if not followup else last["question"]
+            last["tool"] = tool_result
+            last["step_tree"] = step_tree_obj if enable_step_tree else None
+            last["docs"] = tdocs
+            last["answer"] = answer
+            last["retrieval_level"] = retrieval_level
+            last["style_level"] = style_level
+
             continue
 
         if followup and last["docs"] is not None:
@@ -705,7 +919,6 @@ def main():
             continue
 
 
-
         prompt = build_prompt(style_level)
         chain = create_stuff_documents_chain(llm, prompt)
 
@@ -742,7 +955,3 @@ if __name__ == "__main__":
                 preview = (d.page_content or "").replace("\n", " ")[:220]
                 print(f"- {i}: dist={dist:.4f}  {src}#chunk{cid} :: {preview}...")
 '''
-#思维链，步骤分解，-得到粗步骤，二次分解，再提取，步骤里具体需要计算什么东西，
-#步骤+结果
-#调用错误
-#用户偏好embedding（年龄，性别）
