@@ -266,7 +266,7 @@ def load_or_build_vectorstore(cfg: LevelCfg, #某个 level 的配置（primary/m
 # 检索：带 score 的召回 + 相对过滤 + 简单“按文件限流”去噪
 # =========================
 # =========================
-# 新增：MMR 重排（让召回更“多样”，减少同一篇/同一段重复）
+# MMR 重排（让召回更“多样”，减少同一篇/同一段重复）
 # =========================
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     denom = float(np.linalg.norm(a) * np.linalg.norm(b))
@@ -331,9 +331,9 @@ def _mmr_order(
 # =========================
 def retrieve_with_filter(
     vs: FAISS,
-    embeddings: OllamaEmbeddings,  # 新增：为了 MMR，需要重新算候选 embedding
+    embeddings: OllamaEmbeddings,  # 为了 MMR，需要重新算候选 embedding
     query: str,
-    use_mmr: bool = USE_MMR_DEFAULT,  # 新增：可按需开关
+    use_mmr: bool = USE_MMR_DEFAULT,  # 可按需开关
 ) -> List[Document]:
     results: List[Tuple[Document, float]] = vs.similarity_search_with_score(query, k=FETCH_K)
     if not results:
@@ -342,7 +342,7 @@ def retrieve_with_filter(
     # 距离越小越相似（FAISS/L2 常见）
     best = results[0][1]
 
-    # 新增：绝对距离门槛 —— 防止“最相似也很烂”时仍硬塞上下文导致幻觉
+    # 绝对距离门槛 —— 防止“最相似也很烂”时仍硬塞上下文导致幻觉
     if DIST_ABS_MAX is not None and best > DIST_ABS_MAX:
         return []
 
@@ -354,7 +354,7 @@ def retrieve_with_filter(
     # 给后面“按文件限流”留点余量
     kept = kept[: max(TOP_K * 3, TOP_K)]
 
-    # 新增：可选 MMR 重排（提升多样性，减少重复 chunk）
+    # MMR 重排（提升多样性，减少重复 chunk）
     if use_mmr and len(kept) > 1:
         try:
             q_vec = np.array(embeddings.embed_query(query), dtype=np.float32)
@@ -412,11 +412,8 @@ def build_prompt(level_key: str, tone_key: str = "kind") -> ChatPromptTemplate:
         ("human", "问题：{input}\n\n<context>\n{context}\n</context>")
     ])
 
-
-
-
 # =========================
-# 新增：推理引擎模式 Prompt
+# 推理引擎模式 Prompt
 # - tool_result 由 Sympy 计算/推理得到，视作“事实真值”，不得篡改
 # - context 只用于补充“讲解模板/常错点/定义直觉”，不提供答案则也可解释
 # =========================
@@ -1064,7 +1061,7 @@ def main():
             continue
 
 
-        # 新增：MMR 重排开关
+        # MMR 重排开关
         if q.startswith("/mmr"):
             parts = q.split()
             if len(parts) == 2 and parts[1] in {"on", "off"}:
@@ -1074,7 +1071,7 @@ def main():
                 print("用法：/mmr on|off")
             continue
 
-        # 新增：推理引擎开关（Sympy）。
+        # 推理引擎开关（Sympy）。
         # - on：数学题优先用工具求解，再由 LLM 按档位解释
         # - off：完全回到纯 RAG
         if q.startswith("/tool") or q.startswith("/solver"):
