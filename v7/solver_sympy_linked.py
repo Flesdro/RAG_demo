@@ -20,12 +20,46 @@ solver_sympy.py
 import re
 from typing import Dict, List, Optional, Tuple, Any
 import sympy as sp
-from v6.verifier import (
+from verifier_linked import (
     normalize_math_text,
     build_local_dict,
+    parse_expr_safe,
     parse_expr_with_local_dict,
+    parse_equation_safe,
     verify_solution_substitution,
 )
+
+# --- helpers: format solutions for stable final_answer ---
+
+def _format_solutions_for_final(solutions: list) -> str:
+    """Format structured solutions into a stable human-readable string."""
+    if not solutions:
+        return ""
+    groups = []
+    for sol in solutions:
+        if isinstance(sol, dict) and sol:
+            groups.append(", ".join([f"{k}={v}" for k, v in sol.items()]))
+        else:
+            groups.append(str(sol))
+    return " 或 ".join(groups)
+
+
+def format_tool_result_final_answer(tool: dict) -> str:
+    """Generate final_answer text from tool_result (prefer solutions, else result)."""
+    if not isinstance(tool, dict):
+        return str(tool)
+    if tool.get("final_answer"):
+        return str(tool["final_answer"]).strip()
+    sols = tool.get("solutions")
+    if isinstance(sols, list) and sols:
+        s = _format_solutions_for_final(sols)
+        if s:
+            return s
+    if tool.get("result") is not None:
+        return str(tool["result"]).strip()
+    return ""
+
+
 def make_template_query(style_level: str, tool_type: str) -> str:
     """用于在知识库里检索“讲解模板/常错点”的查询词（不依赖具体题目）。"""
     # 你可以按自己的 docs 内容进一步改这里的词
@@ -176,71 +210,46 @@ def _solve_equation(q: str) -> Dict[str, Any]:
         if not m:
             raise ValueError("no equation found")
         segs = [m.group(0)]
+
     eq = _parse_equations(segs)[0]
     syms = sorted(eq.free_symbols, key=lambda s: s.name)
+
     # 默认解第一个变量（常见是一元方程 x）
     vars_ = syms if syms else [sp.Symbol("x")]
-    sols = sp.solve(eq, vars_[0] if len(vars_) == 1 else vars_, dict=True)
+    target = vars_[0] if len(vars_) == 1 else vars_
+    sols = sp.solve(eq, target, dict=True)
+
     checks: List[str] = []
     if sols:
         ok, msgs = verify_solution_substitution([eq], sols[0])
         checks.extend(msgs)
         checks.insert(0, f"substitution_check={'OK' if ok else 'FAIL'}")
+
+    # 将 sympy 解集转换为 JSON 友好结构
+    solutions: List[Dict[str, str]] = []
+    for sol in sols:
+        if isinstance(sol, dict):
+            solutions.append({str(k): str(v) for k, v in sol.items()})
+        else:
+            solutions.append({"solution": str(sol)})
+
+    final_answer = _format_solutions_for_final(solutions) if solutions else ""
+
     return {
         "type": "equation",
         "engine": "sympy",
         "equation": f"{eq.lhs} = {eq.rhs}",
         "variables": [v.name for v in vars_],
+        "solutions": solutions,
         "result": str(sols),
+        "final_answer": final_answer,
         "steps": [
             f"将题目写成方程：{eq.lhs} = {eq.rhs}",
             "用代数方法求解（sympy.solve）得到解集。",
         ],
         "checks": checks,
     }
-def _solve_system(q: str) -> Dict[str, Any]:
-    segs = _split_equation_segments(q)
-    eqs, _ld = _parse_equations_shared(segs)
-    if len(eqs) < 2:
-        # 如果只有一个等式，降级为 equation
-        return _solve_equation(q)
-    # 收集变量
-    symbols = sorted(set().union(*[eq.free_symbols for eq in eqs]), key=lambda s: s.name)
-    sols = sp.solve(eqs, symbols, dict=True)
-    checks: List[str] = []
-    if sols:
-        ok, msgs = verify_solution_substitution(eqs, sols[0])
-        checks.extend(msgs)
-        checks.insert(0, f"substitution_check={'OK' if ok else 'FAIL'}")
-    return {
-        "type": "system",
-        "engine": "sympy",
-        "equations": [f"{eq.lhs} = {eq.rhs}" for eq in eqs],
-        "variables": [s.name for s in symbols],
-        "result": str(sols),
-        "steps": [
-            "将题目整理为方程组：",
-            *[f"- {eq.lhs} = {eq.rhs}" for eq in eqs],
-            "用代数方法联立求解（sympy.solve）得到解集。",
-        ],
-        "checks": checks,
-    }
-def _solve_derivative(q: str) -> Dict[str, Any]:
-    expr_text = _maybe_extract_expr(q) or _extract_after_keyword(q, ["求导", "导数"]) or q
-    expr = parse_expr_safe(expr_text)
-    x = sp.Symbol("x", real=True)
-    der = sp.diff(expr, x)
-    return {
-        "type": "derivative",
-        "engine": "sympy",
-        "expr": str(expr),
-        "result": str(der),
-        "steps": [
-            f"设 y = {expr}",
-            f"对 x 求导，得到 y' = {der}",
-        ],
-        "checks": [],
-    }
+
 def _solve_extrema(q: str) -> Dict[str, Any]:
     expr_text = _maybe_extract_expr(q) or _extract_after_keyword(q, ["求导", "导数"]) or q
     expr = parse_expr_safe(expr_text)
@@ -292,20 +301,25 @@ def solve_math_question(q: str) -> Optional[Dict[str, Any]]:
     typ = classify_question(qn)
     try:
         if typ == "arithmetic":
-            return _solve_arithmetic(qn)
-        if typ == "simplify":
-            return _solve_simplify(qn)
-        if typ == "factor":
-            return _solve_factor(qn)
-        if typ == "equation":
-            return _solve_equation(qn)
-        if typ == "system":
-            return _solve_system(qn)
-        if typ == "derivative":
-            return _solve_derivative(qn)
-        if typ == "extrema":
-            return _solve_extrema(qn)
-        return None
+            res = _solve_arithmetic(qn)
+        elif typ == "simplify":
+            res = _solve_simplify(qn)
+        elif typ == "factor":
+            res = _solve_factor(qn)
+        elif typ == "equation":
+            res = _solve_equation(qn)
+        elif typ == "system":
+            res = _solve_system(qn)
+        elif typ == "derivative":
+            res = _solve_derivative(qn)
+        elif typ == "extrema":
+            res = _solve_extrema(qn)
+        else:
+            return None
+
+        if isinstance(res, dict) and not res.get("final_answer"):
+            res["final_answer"] = format_tool_result_final_answer(res)
+        return res
     except Exception:
         # 解析/求解失败就回退到纯 RAG
         return None

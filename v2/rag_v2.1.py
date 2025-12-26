@@ -528,9 +528,24 @@ def main():
 
 
         prompt = build_prompt(style_level)
+
+        # ✅ 这里先把 docs 拼成 context 字符串（与 stuff chain 的默认行为一致）
+        context_str = "\n\n".join((d.page_content or "") for d in docs)
+
+        # ✅ 打印最终拼接后的 system/human（建议挂在 debug 开关上）
+        if debug:
+            msgs = prompt.format_messages(input=q, context=context_str)
+            print("\n[debug] ===== FINAL PROMPT MESSAGES =====")
+            for m in msgs:
+                # m.type: system/human
+                print(f"\n--- {m.type.upper()} ---\n{m.content}")
+            print("\n[debug] ================================")
+
         chain = create_stuff_documents_chain(llm, prompt)
 
+        # ⚠️ 注意：chain.invoke 仍然传 docs（保持你原逻辑不变）
         out = chain.invoke({"input": q, "context": docs})
+
         answer = out if isinstance(out, str) else out.get("output_text", str(out))
 
         print("\nA>", answer)
@@ -540,6 +555,7 @@ def main():
 
         print("\n引用：")
         print(fmt_sources(docs))
+
 
         if debug:
             print(f"\n[debug] retrieval_level={retrieval_level} style_level={style_level} retrieved={len(docs)}")
@@ -552,3 +568,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

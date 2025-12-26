@@ -38,6 +38,23 @@ def normalize_math_text(s: str) -> str:
     s = s.replace("×", "*").replace("÷", "/").replace("^", "**")
     s = s.replace("（", "(").replace("）", ")")
     s = s.replace("，", ",").replace("：", ":").replace("；", ";")
+
+    # 不等号/比较符
+    s = s.replace("≤", "<=").replace("≥", ">=")
+    s = s.replace("≠", "!=")
+    s = s.replace("＝", "=")
+
+    # 绝对值：把 |...| 转成 Abs(...)
+    if "|" in s:
+        pattern = re.compile(r"\|([^|]+?)\|")
+        prev = None
+        while prev != s:
+            prev = s
+            s = pattern.sub(r"Abs(\1)", s)
+
+    # 对数：log_2(x) -> log(x,2)
+    s = re.sub(r"\blog_([A-Za-z0-9_]+)\s*\(([^()]*)\)", r"log(\2,\1)", s)
+
     # 常见函数名
     s = re.sub(r"\bln\b", "log", s)
     return s

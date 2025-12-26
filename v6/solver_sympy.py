@@ -20,10 +20,12 @@ solver_sympy.py
 import re
 from typing import Dict, List, Optional, Tuple, Any
 import sympy as sp
-from verifier import (
+from v6.verifier import (
     normalize_math_text,
     build_local_dict,
+    parse_expr_safe,
     parse_expr_with_local_dict,
+    parse_equation_safe,
     verify_solution_substitution,
 )
 def make_template_query(style_level: str, tool_type: str) -> str:
@@ -37,6 +39,8 @@ def make_template_query(style_level: str, tool_type: str) -> str:
         "system": "解方程组 步骤 常错点",
         "derivative": "求导 步骤 常错点",
         "extrema": "导数 极值 单调区间 步骤 常错点",
+        "inequality": "解不等式 步骤 常错点",
+        "evaluate": "代入求值 步骤 常错点",
         "unknown": "数学 解题 步骤 常错点",
     }.get(tool_type, "数学 解题 步骤 常错点")
     return f"{style_level} {base}"
@@ -49,36 +53,69 @@ def _extract_after_keyword(q: str, keywords: List[str]) -> Optional[str]:
 def _maybe_extract_expr(q: str) -> Optional[str]:
     """提取表达式：优先从 y= / f(x)= 里取，其次取冒号后内容。"""
     qn = normalize_math_text(q)
-    m = re.search(r"(?:y|f\s*\(\s*x\s*\))\s*=\s*(.+)$", qn)
+    # 非贪婪：遇到“,求/;求/。求/  求”停止，避免把“求…”尾巴也抓进去
+    m = re.search(r"(?:y|f\s*\(\s*x\s*\))\s*=\s*(.+?)(?:[,，;；。]\s*求|\s+求|$)", qn)
     if m:
         return m.group(1).strip()
     # 形如：求导：ln(x)/x
     if ":" in qn:
         return qn.split(":", 1)[1].strip()
     return None
+
+
+def _strip_trailing_request(s: str) -> str:
+    """去掉表达式后面常见的“求…”尾巴，避免解析失败。"""
+    s = s.strip()
+    s = re.split(r"[,，;；。]\s*求", s, maxsplit=1)[0]
+    s = re.split(r"\s+求", s, maxsplit=1)[0]
+    return s.strip()
+
+
 def classify_question(q: str) -> str:
     q = q.strip()
+    qn = normalize_math_text(q)
+
+    # 不等式（优先于普通算式）
+    if "不等式" in q or any(op in qn for op in ["<=", ">=", "<", ">", "!="]):
+        # 若明确是“解方程/方程组”，优先走方程分支
+        if not ("方程组" in q or (any(k in q for k in ["解方程", "方程"]) and "=" in qn and not any(op in qn for op in ["<", ">", "!", "<=", ">="]))):
+            return "inequality"
+
+    # 代入求值：出现变量赋值 + “求值/的值/代入/计算”
+    if re.search(r"[a-zA-Z]\w*\s*=\s*[^，,;；\n\s]+", qn) and any(k in q for k in ["求值", "的值", "代入", "计算"]):
+        return "evaluate"
+    if re.search(r"(当|已知)\s*[a-zA-Z]\w*\s*=\s*[^，,;；\n\s]+", qn) and "求" in q:
+        return "evaluate"
+
+    # 导数 / 极值
     if any(k in q for k in ["求导", "导数"]):
         if any(k in q for k in ["极值", "最值", "单调", "单调区间"]):
             return "extrema"
         return "derivative"
-    if "方程组" in q or q.count("=") >= 2:
+
+    # 方程组 / 方程
+    if "方程组" in q or qn.count("=") >= 2:
         return "system"
-    if any(k in q for k in ["解方程", "方程"]) and "=" in q:
+    if any(k in q for k in ["解方程", "方程"]) and "=" in qn:
         return "equation"
+
+    # 因式分解 / 化简
     if any(k in q for k in ["因式分解", "分解"]):
         return "factor"
     if "化简" in q:
         return "simplify"
+
     # arithmetic：尽量保守（只在没有字母变量时才判）
-    qn = normalize_math_text(q)
-    # 提取可能的算式部分
     expr = _maybe_extract_expr(qn) or qn
+    expr = _strip_trailing_request(expr)
     if re.fullmatch(r"[0-9\.\+\-\*\/\(\)\s]+", expr):
         return "arithmetic"
+
     return "unknown"
+
+
 def _solve_arithmetic(q: str) -> Dict[str, Any]:
-    expr_text = _maybe_extract_expr(q) or q
+    expr_text = _strip_trailing_request(_maybe_extract_expr(q) or q)
     expr = parse_expr_safe(expr_text)
     val = sp.N(expr)
     return {
@@ -93,7 +130,7 @@ def _solve_arithmetic(q: str) -> Dict[str, Any]:
         "checks": [],
     }
 def _solve_simplify(q: str) -> Dict[str, Any]:
-    expr_text = _maybe_extract_expr(q) or _extract_after_keyword(q, ["化简"]) or q
+    expr_text = _strip_trailing_request(_maybe_extract_expr(q) or _extract_after_keyword(q, ["化简"]) or q)
     expr = parse_expr_safe(expr_text)
     simp = sp.simplify(expr)
     return {
@@ -108,7 +145,7 @@ def _solve_simplify(q: str) -> Dict[str, Any]:
         "checks": [],
     }
 def _solve_factor(q: str) -> Dict[str, Any]:
-    expr_text = _maybe_extract_expr(q) or _extract_after_keyword(q, ["因式分解", "分解"]) or q
+    expr_text = _strip_trailing_request(_maybe_extract_expr(q) or _extract_after_keyword(q, ["因式分解", "分解"]) or q)
     expr = parse_expr_safe(expr_text)
     fac = sp.factor(expr)
     return {
@@ -122,20 +159,46 @@ def _solve_factor(q: str) -> Dict[str, Any]:
         ],
         "checks": [],
     }
+def _split_outside_parens(s: str, seps: str = ";\n,，") -> List[str]:
+    """按分隔符切分，但只在括号外切分（避免 log(x,2) 等被逗号误切）。"""
+    parts: List[str] = []
+    buf: List[str] = []
+    depth = 0
+    for ch in s:
+        if ch == "(":
+            depth += 1
+        elif ch == ")" and depth > 0:
+            depth -= 1
+
+        if ch in seps and depth == 0:
+            piece = "".join(buf).strip()
+            if piece:
+                parts.append(piece)
+            buf = []
+        else:
+            buf.append(ch)
+
+    tail = "".join(buf).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
 def _split_equation_segments(q: str) -> List[str]:
     qn = normalize_math_text(q)
     # 去掉外层花括号等
     qn = qn.replace("{", " ").replace("}", " ")
-    # 按常见分隔符切
-    segs = re.split(r"[;\n,，]+", qn)
+    # 按常见分隔符切（括号内不切）
+    segs = _split_outside_parens(qn)
     segs = [s.strip() for s in segs if "=" in s]
     cleaned: List[str] = []
     for s in segs:
-        # 新增：去掉等式左侧可能出现的中文提示词（例如：解方程:  求解:）
         if ":" in s and s.find(":") < s.find("="):
             s = s.split(":", 1)[1].strip()
         cleaned.append(s)
     return cleaned
+
+
 def _parse_equations(segs: List[str]) -> List[sp.Eq]:
     eqs: List[sp.Eq] = []
     for s in segs:
@@ -167,6 +230,123 @@ def _parse_equations_shared(segs: List[str]) -> Tuple[List[sp.Eq], Dict[str, obj
         rhs = parse_expr_with_local_dict(right, local_dict)
         eqs.append(sp.Eq(lhs, rhs))
     return eqs, local_dict
+
+def _solve_evaluate(q: str) -> Dict[str, Any]:
+    """代入求值：从题目中提取表达式与赋值（如 当 x=2 时，求 3x^2-1 的值）。"""
+    qn = normalize_math_text(q)
+
+    # 1) 提取赋值（先按文本提取，后按表达式中的符号名对齐）
+    assigns = re.findall(r"([a-zA-Z]\w*)\s*=\s*([^，,;；\n\s]+)", qn)
+    raw_sub: Dict[str, sp.Expr] = {}
+    for name, val_txt in assigns:
+        try:
+            raw_sub[name] = parse_expr_safe(val_txt)
+        except Exception:
+            continue
+    if not raw_sub:
+        raise ValueError("未能从题目中提取到可用的变量赋值")
+
+    # 2) 提取要求计算的表达式：优先匹配“求 XXX 的值/求 XXX 值/求 XXX”
+    expr_text = None
+    m = re.search(r"求\s*(.+?)(?:\s*(?:的值|值|是多少|为多少)\b|$)", qn)
+    if m:
+        expr_text = m.group(1).strip()
+
+    # 兜底：y= / f(x)= / 冒号后
+    if not expr_text:
+        expr_text = _maybe_extract_expr(qn) or _extract_after_keyword(qn, ["求值", "代入", "计算"]) or qn
+    expr_text = _strip_trailing_request(expr_text)
+
+    expr = parse_expr_safe(expr_text)
+
+    # 3) 让替换用“表达式里实际出现的符号对象”，避免 Symbol 假设不一致导致 subs 失败
+    name_to_symbol = {sym.name: sym for sym in expr.free_symbols}
+    sub: Dict[sp.Symbol, sp.Expr] = {}
+    for name, v in raw_sub.items():
+        sym = name_to_symbol.get(name, sp.Symbol(name))
+        sub[sym] = v
+
+    val = sp.simplify(expr.subs(sub))
+
+    steps = [
+        f"原式：{expr}",
+        "从题目中提取已知： " + ", ".join([f"{k}={v}" for k, v in raw_sub.items()]),
+        f"代入并化简得到：{val}",
+    ]
+    return {
+        "type": "evaluate",
+        "engine": "sympy",
+        "expr": str(expr),
+        "given": {str(k): str(v) for k, v in raw_sub.items()},
+        "result": str(val),
+        "steps": steps,
+        "checks": [],
+    }
+
+
+def _solve_inequality(q: str) -> Dict[str, Any]:
+    """解不等式：支持 <, <=, >, >= 以及含 Abs 的不等式。"""
+    qn = normalize_math_text(q)
+    # 获取不等式主体
+    seg = _extract_after_keyword(qn, ["解不等式", "不等式"]) or _maybe_extract_expr(qn) or qn
+    seg = _strip_trailing_request(seg)
+
+    # 找运算符（优先匹配 <= >= !=）
+    ops = ["<=", ">=", "!=", "<", ">"]
+    op = None
+    for candidate in ops:
+        if candidate in seg:
+            op = candidate
+            break
+    if op is None:
+        raise ValueError("未检测到不等式符号")
+
+    left_txt, right_txt = seg.split(op, 1)
+    left = parse_expr_safe(left_txt.strip())
+    right = parse_expr_safe(right_txt.strip())
+
+    # 选变量：尽量取唯一自由变量
+    free = sorted(list((left - right).free_symbols), key=lambda s: s.name)
+    x = free[0] if free else sp.Symbol("x", real=True)
+
+    if op == "<=":
+        rel = sp.Le(left, right)
+    elif op == ">=":
+        rel = sp.Ge(left, right)
+    elif op == "<":
+        rel = sp.Lt(left, right)
+    elif op == ">":
+        rel = sp.Gt(left, right)
+    else:
+        # "!="：简单返回 x!=root 的形式（若可解）
+        roots = sp.solve(sp.Eq(left, right), x)
+        return {
+            "type": "inequality",
+            "engine": "sympy",
+            "relation": f"{left} != {right}",
+            "symbol": str(x),
+            "result": "且".join([f"{x}!={r}" for r in roots]) if roots else f"{x} != {right}",
+            "steps": [
+                f"将不等式写成：{left} != {right}",
+                "这是不等式的排除条件题型，给出不等时的取值范围描述。",
+            ],
+            "checks": [],
+        }
+
+    sol = sp.solve_univariate_inequality(rel, x, relational=True)
+    return {
+        "type": "inequality",
+        "engine": "sympy",
+        "relation": str(rel),
+        "symbol": str(x),
+        "result": str(sol),
+        "steps": [
+            f"将不等式写成：{rel}",
+            f"解关于 {x} 的不等式，得到：{sol}",
+        ],
+        "checks": [],
+    }
+
 
 def _solve_equation(q: str) -> Dict[str, Any]:
     segs = _split_equation_segments(q)
@@ -226,7 +406,7 @@ def _solve_system(q: str) -> Dict[str, Any]:
         "checks": checks,
     }
 def _solve_derivative(q: str) -> Dict[str, Any]:
-    expr_text = _maybe_extract_expr(q) or _extract_after_keyword(q, ["求导", "导数"]) or q
+    expr_text = _strip_trailing_request(_maybe_extract_expr(q) or _extract_after_keyword(q, ["求导", "导数"]) or q)
     expr = parse_expr_safe(expr_text)
     x = sp.Symbol("x", real=True)
     der = sp.diff(expr, x)
@@ -242,7 +422,7 @@ def _solve_derivative(q: str) -> Dict[str, Any]:
         "checks": [],
     }
 def _solve_extrema(q: str) -> Dict[str, Any]:
-    expr_text = _maybe_extract_expr(q) or _extract_after_keyword(q, ["求导", "导数"]) or q
+    expr_text = _strip_trailing_request(_maybe_extract_expr(q) or _extract_after_keyword(q, ["求导", "导数"]) or q)
     expr = parse_expr_safe(expr_text)
     x = sp.Symbol("x", real=True)
     der = sp.diff(expr, x)
@@ -283,10 +463,11 @@ def _solve_extrema(q: str) -> Dict[str, Any]:
         "steps": steps,
         "checks": [],
     }
-def solve_math_question(q: str) -> Optional[Dict[str, Any]]:
+def solve_math_question(q: str, return_error: bool = False) -> Optional[Dict[str, Any]]:
     """
     尝试用 Sympy 解题。
     返回 tool_result dict（可 json 序列化）；失败返回 None。
+    若 return_error=True，则失败时返回 {type:error,...} 便于调试/评测。
     """
     qn = normalize_math_text(q)
     typ = classify_question(qn)
@@ -305,7 +486,12 @@ def solve_math_question(q: str) -> Optional[Dict[str, Any]]:
             return _solve_derivative(qn)
         if typ == "extrema":
             return _solve_extrema(qn)
+        if typ == "inequality":
+            return _solve_inequality(qn)
+        if typ == "evaluate":
+            return _solve_evaluate(qn)
         return None
-    except Exception:
-        # 解析/求解失败就回退到纯 RAG
+    except Exception as e:
+        if return_error:
+            return {"type": "error", "engine": "sympy", "classified": typ, "error": repr(e)}
         return None

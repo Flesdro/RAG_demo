@@ -1,0 +1,15 @@
+{"id": "m0001", "level": "middle", "question": "解方程：2x + 7 = 19", "model": "rag_v2.1", "model_answer": "x = 6", "status": "OK", "final_answer": "x=6", "gold_final_answer": "x=6"}
+{"id": "m0002", "level": "middle", "question": "解方程：3(x - 2) = 15", "model": "rag_v2.1", "model_answer": "x = 7", "status": "OK", "final_answer": "x=7", "gold_final_answer": "x=7"}
+{"id": "m0003", "level": "middle", "question": "解方程：5x - 3 = 2x + 12", "model": "rag_v2.1", "model_answer": "x = 5", "status": "OK", "final_answer": "x=5", "gold_final_answer": "x=5"}
+{"id": "m0004", "level": "middle", "question": "解方程组：{x + y = 7, x - y = 1}", "model": "rag_v2.1", "model_answer": "x=4, y=3", "status": "OK", "final_answer": "x=4, y=3", "gold_final_answer": "x=4, y=3"}
+{"id": "m0005", "level": "middle", "question": "解不等式：4x - 5 > 7", "model": "rag_v2.1", "model_answer": "x > 3", "status": "OK", "final_answer": "x>3", "gold_final_answer": "x>3"}
+{"id": "m0006", "level": "middle", "question": "化简：3a - 2(a - 5)", "model": "rag_v2.1", "model_answer": "a + 10", "status": "OK", "final_answer": "a+10", "gold_final_answer": "a+10"}
+{"id": "m0007", "level": "middle", "question": "化简：(x + 2)(x - 5)", "model": "rag_v2.1", "model_answer": "x^2 - 3x - 10", "status": "OK", "final_answer": "x^2-3x-10", "gold_final_answer": "x^2-3x-10"}
+{"id": "m0008", "level": "middle", "question": "因式分解：x^2 - 9", "model": "rag_v2.1", "model_answer": "\\(x^2 - 9 = (x + 3)(x - 3)\\)。", "status": "OK", "final_answer": "(x-3)(x+3)", "gold_final_answer": "(x-3)(x+3)"}
+{"id": "m0009", "level": "middle", "question": "已知一次函数 y = 2x - 3，求当 x = 4 时 y 的值", "model": "rag_v2.1", "model_answer": "y = 5", "status": "OK", "final_answer": "5", "gold_final_answer": "5"}
+{"id": "m0010", "level": "middle", "question": "已知反比例函数 y = 12/x，求当 x = -3 时 y 的值", "model": "rag_v2.1", "model_answer": "-4", "status": "OK", "final_answer": "-4", "gold_final_answer": "-4"}
+{"id": "m0011", "level": "middle", "question": "计算：(-2)^3 + 5×(-3)", "model": "rag_v2.1", "model_answer": "-23", "status": "OK", "final_answer": "-23", "gold_final_answer": "-23"}
+{"id": "m0012", "level": "middle", "question": "解方程：x^2 - 5x + 6 = 0", "model": "rag_v2.1", "model_answer": "x = 2 或 x = 3", "status": "OK", "final_answer": "x=2或x=3", "gold_final_answer": "x=2或x=3"}
+{"id": "m0013", "level": "middle", "question": "解方程：x^2 = 49", "model": "rag_v2.1", "model_answer": "x = 7 或 x = -7", "status": "OK", "final_answer": "x=7或x=-7", "gold_final_answer": "x=7或x=-7"}
+{"id": "m0014", "level": "middle", "question": "一个等腰三角形的顶角是40°，求每个底角的度数", "model": "rag_v2.1", "model_answer": "- 8: dist=0.9264  docs/middle/common_mistakes.md#chunk1 :: # 初中常见错误与纠错话术（middle）  ## 代数与方程 - 错误：移项不变号   纠错：移项等于两边同时加/减同一个量，所以符号会变。 - 错误：去括号时忘记“-”要变号   纠错：-(a-b)= -a + b，括号内每一项都要变号。 - 错误：合并同类项把不同字母也合并   纠错：只有字母部分完全相同才是同类项。 - 错误：解出 x 后不检验   纠错：把 x 代回原方程看等号是否成立。  ## 方程组 - 错误：代入后漏掉括...", "status": "OK", "final_answer": "70°", "gold_final_answer": "70°"}
+{"id": "m0015", "level": "middle", "question": "一辆车以60千米/小时行驶2.5小时，行驶了多少千米？", "model": "rag_v2.1", "model_answer": "150千米", "status": "OK", "final_answer": "150千米", "gold_final_answer": "150千米"}

@@ -1,0 +1,15 @@
+{"id": "p0001", "level": "primary", "question": "计算：37 + 58 = ?", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "95", "status": "OK", "final_answer": "95", "gold_final_answer": "95"}
+{"id": "p0002", "level": "primary", "question": "计算：120 - 47 = ?", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "73", "status": "OK", "final_answer": "73", "gold_final_answer": "73"}
+{"id": "p0003", "level": "primary", "question": "计算：16 × 7 = ?", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "112", "status": "OK", "final_answer": "112", "gold_final_answer": "112"}
+{"id": "p0004", "level": "primary", "question": "计算：144 ÷ 12 = ?", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "12", "status": "OK", "final_answer": "12", "gold_final_answer": "12"}
+{"id": "p0005", "level": "primary", "question": "小明买了5盒彩笔，每盒有8支，一共有多少支？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "40", "status": "OK", "final_answer": "40", "gold_final_answer": "40"}
+{"id": "p0006", "level": "primary", "question": "一个长方形长6厘米、宽4厘米，它的周长是多少厘米？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "20", "status": "OK", "final_answer": "20厘米", "gold_final_answer": "20厘米"}
+{"id": "p0007", "level": "primary", "question": "一个正方形边长是9厘米，它的面积是多少平方厘米？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "81", "status": "OK", "final_answer": "81平方厘米", "gold_final_answer": "81平方厘米"}
+{"id": "p0008", "level": "primary", "question": "28的四分之三是多少？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "21", "status": "OK", "final_answer": "21", "gold_final_answer": "21"}
+{"id": "p0009", "level": "primary", "question": "求平均数：12、15、9 的平均数是多少？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "12、15、9 的平均数是 12。", "status": "OK", "final_answer": "12", "gold_final_answer": "12"}
+{"id": "p0010", "level": "primary", "question": "从9:25到11:10一共经过多长时间？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "1小时45分钟", "status": "OK", "final_answer": "1小时45分钟", "gold_final_answer": "1小时45分钟"}
+{"id": "p0011", "level": "primary", "question": "一瓶牛奶3.5元，一块面包4.2元，一共多少钱？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "7.7", "status": "OK", "final_answer": "7.7元", "gold_final_answer": "7.7元"}
+{"id": "p0012", "level": "primary", "question": "把2.4米换算成厘米是多少厘米？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "240", "status": "OK", "final_answer": "240厘米", "gold_final_answer": "240厘米"}
+{"id": "p0013", "level": "primary", "question": "一个三角形的两个角分别是50°和60°，第三个角是多少度？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "70°", "status": "OK", "final_answer": "70°", "gold_final_answer": "70°"}
+{"id": "p0014", "level": "primary", "question": "计算：1/2 + 1/4 = ?", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "3/4", "status": "OK", "final_answer": "3/4", "gold_final_answer": "3/4"}
+{"id": "p0015", "level": "primary", "question": "班里有24名学生，其中2/3是女生，女生有多少人？", "model": "qwen2.5", "baseline_mode": "guarded", "model_answer": "16", "status": "OK", "final_answer": "16人", "gold_final_answer": "16人"}

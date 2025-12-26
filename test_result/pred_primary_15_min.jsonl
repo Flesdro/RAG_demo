@@ -1,0 +1,15 @@
+{"id": "p0001", "level": "primary", "question": "计算：37 + 58 = ?", "error": "error('invalid group reference 19 at position 1')"}
+{"id": "p0002", "level": "primary", "routed_level": "primary", "question": "计算：120 - 47 = ?", "question_used_for_tool": "120 - 47", "final_answer": "73.0000000000000", "used_mode": "tool", "fixed_final": true, "step_tree_ok": true}
+{"id": "p0003", "level": "primary", "routed_level": "primary", "question": "计算：16 × 7 = ?", "question_used_for_tool": "16 * 7", "final_answer": "112.000000000000", "used_mode": "tool", "fixed_final": true, "step_tree_ok": true}
+{"id": "p0004", "level": "primary", "routed_level": "primary", "question": "计算：144 ÷ 12 = ?", "question_used_for_tool": "144 / 12", "final_answer": "12", "used_mode": "tool", "fixed_final": true, "step_tree_ok": true}
+{"id": "p0005", "level": "primary", "routed_level": "primary", "question": "小明买了5盒彩笔，每盒有8支，一共有多少支？", "final_answer": "40支", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}
+{"id": "p0006", "level": "primary", "routed_level": "primary", "question": "一个长方形长6厘米、宽4厘米，它的周长是多少厘米？", "final_answer": "资料中没有找到", "used_mode": "rag_only_refuse", "rag_only_reason": "need_calc_but_no_tool"}
+{"id": "p0007", "level": "primary", "routed_level": "primary", "question": "一个正方形边长是9厘米，它的面积是多少平方厘米？", "final_answer": "资料中没有找到", "used_mode": "rag_only_refuse", "rag_only_reason": "need_calc_but_no_tool"}
+{"id": "p0008", "level": "primary", "routed_level": "primary", "question": "28的四分之三是多少？", "final_answer": "28 的四分之三是 21。", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}
+{"id": "p0009", "level": "primary", "routed_level": "primary", "question": "求平均数：12、15、9 的平均数是多少？", "final_answer": "12。", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}
+{"id": "p0010", "level": "primary", "routed_level": "primary", "question": "从9:25到11:10一共经过多长时间？", "final_answer": "105分钟", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}
+{"id": "p0011", "level": "primary", "routed_level": "primary", "question": "一瓶牛奶3.5元，一块面包4.2元，一共多少钱？", "final_answer": "一共 7.7 元。", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}
+{"id": "p0012", "level": "primary", "routed_level": "primary", "question": "把2.4米换算成厘米是多少厘米？", "final_answer": "240厘米", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}
+{"id": "p0013", "level": "primary", "routed_level": "primary", "question": "一个三角形的两个角分别是50°和60°，第三个角是多少度？", "final_answer": "70°", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}
+{"id": "p0014", "level": "primary", "question": "计算：1/2 + 1/4 = ?", "error": "error('invalid group reference 10 at position 1')"}
+{"id": "p0015", "level": "primary", "routed_level": "primary", "question": "班里有24名学生，其中2/3是女生，女生有多少人？", "final_answer": "女生有16人。", "used_mode": "rag_only", "rag_only_reason": "no_tool_result"}

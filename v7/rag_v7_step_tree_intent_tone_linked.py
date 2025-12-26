@@ -1,3 +1,5 @@
+
+
 from __future__ import annotations
 
 import json
@@ -14,7 +16,7 @@ from typing import Dict, List, Tuple, Optional
 # - 说明：如果环境缺少 sympy 或解析失败，会自动退回纯 RAG
 # =========================
 try:
-    from solver_sympy import solve_math_question, make_template_query
+    from solver_sympy_linked import solve_math_question, make_template_query
     HAS_SOLVER = True
 except Exception:
     HAS_SOLVER = False
@@ -25,7 +27,7 @@ except Exception:
 # 新增：用于步骤树（思维链）里的表达式安全解析与计算回填
 try:
     import sympy as sp  # type: ignore
-    from verifier import build_local_dict, parse_expr_with_local_dict  # type: ignore
+    from verifier_linked import build_local_dict, parse_expr_with_local_dict  # type: ignore
     HAS_SYMPY = True
 except Exception:
     HAS_SYMPY = False
@@ -127,6 +129,7 @@ HARD_RULES = (
     "1) 只能依据 <context> 回答。\n"
     "2) 如果 <context> 没有足够依据，必须回答：资料中没有找到。\n"
     "3) 不得编造材料中不存在的定理/公式/定义。\n"
+    "4) 如果题目需要具体计算/解集/数值结果，而 <context> 只有通用模板或无法给出可核验依据：必须回答：资料中没有找到。不要猜、不要自己算。\n"
 )
 
 
@@ -387,7 +390,7 @@ def retrieve_with_filter(
         if per_src[src] > MAX_PER_SOURCE:
             continue
 
-        d.metadata["score_dist"] = dist  # 保留距离，debug/展示用
+        d.metadata["score_dist"] = float(dist)  # 保留距离，debug/展示用（避免 np.float32 不能 json 序列化）
         final_docs.append(d)
 
         if len(final_docs) >= TOP_K:
@@ -456,11 +459,11 @@ STEP_TREE_COARSE_PROMPT = ChatPromptTemplate.from_messages([
      "<tool_result>\n{tool}\n</tool_result>\n\n"
      "可用提示（可能为空）：\n{hints}\n\n"
      "输出严格JSON：\n"
-     "{\n"
-     "  \"given\":[{\"name\":\"\",\"value\":\"\"}],\n"
+     "{{\n"
+     "  \"given\":[{{\"name\":\"\",\"value\":\"\"}}],\n"
      "  \"goal\":\"\",\n"
-     "  \"coarse_steps\":[{\"id\":\"S1\",\"action\":\"\",\"inputs\":[],\"outputs\":[]}]\n"
-     "}" )
+     "  \"coarse_steps\":[{{\"id\":\"S1\",\"action\":\"\",\"inputs\":[],\"outputs\":[]}}]\n"
+     "}}" )
 ])
 
 STEP_TREE_EXPAND_PROMPT = ChatPromptTemplate.from_messages([
@@ -477,12 +480,12 @@ STEP_TREE_EXPAND_PROMPT = ChatPromptTemplate.from_messages([
      "粗步骤JSON：\n{coarse}\n\n"
      "可用提示（可能为空）：\n{hints}\n\n"
      "输出严格JSON：\n"
-     "{\n"
-     "  \"expanded_steps\": {\n"
-     "    \"S1\":[{\"id\":\"S1.1\",\"action\":\"\",\"needs_calc\":false}],\n"
-     "    \"S2\":[{\"id\":\"S2.1\",\"action\":\"\",\"needs_calc\":true,\"expression\":\"\",\"symbol_map\":{}}]\n"
-     "  }\n"
-     "}" )
+     "{{\n"
+     "  \"expanded_steps\": {{\n"
+     "    \"S1\":[{{\"id\":\"S1.1\",\"action\":\"\",\"needs_calc\":false}}],\n"
+     "    \"S2\":[{{\"id\":\"S2.1\",\"action\":\"\",\"needs_calc\":true,\"expression\":\"\",\"symbol_map\":{{}}}}]\n"
+     "  }}\n"
+     "}}" )
 ])
 
 def _extract_json_obj(s: str) -> Optional[dict]:

@@ -1,0 +1,15 @@
+{"id":"m0001","level":"middle","question":"解方程：2x + 7 = 19","final_answer":"x=6"}
+{"id":"m0002","level":"middle","question":"解方程：3(x - 2) = 15","final_answer":"x=7"}
+{"id":"m0003","level":"middle","question":"解方程：5x - 3 = 2x + 12","final_answer":"x=5"}
+{"id":"m0004","level":"middle","question":"解方程组：{x + y = 7, x - y = 1}","final_answer":"x=4, y=3"}
+{"id":"m0005","level":"middle","question":"解不等式：4x - 5 > 7","final_answer":"x>3"}
+{"id":"m0006","level":"middle","question":"化简：3a - 2(a - 5)","final_answer":"a+10"}
+{"id":"m0007","level":"middle","question":"化简：(x + 2)(x - 5)","final_answer":"x^2-3x-10"}
+{"id":"m0008","level":"middle","question":"因式分解：x^2 - 9","final_answer":"(x-3)(x+3)"}
+{"id":"m0009","level":"middle","question":"已知一次函数 y = 2x - 3，求当 x = 4 时 y 的值","final_answer":"5"}
+{"id":"m0010","level":"middle","question":"已知反比例函数 y = 12/x，求当 x = -3 时 y 的值","final_answer":"-4"}
+{"id":"m0011","level":"middle","question":"计算：(-2)^3 + 5×(-3)","final_answer":"-23"}
+{"id":"m0012","level":"middle","question":"解方程：x^2 - 5x + 6 = 0","final_answer":"x=2或x=3"}
+{"id":"m0013","level":"middle","question":"解方程：x^2 = 49","final_answer":"x=7或x=-7"}
+{"id":"m0014","level":"middle","question":"一个等腰三角形的顶角是40°，求每个底角的度数","final_answer":"70°"}
+{"id":"m0015","level":"middle","question":"一辆车以60千米/小时行驶2.5小时，行驶了多少千米？","final_answer":"150千米"}

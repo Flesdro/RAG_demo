@@ -14,7 +14,7 @@ from typing import Dict, List, Tuple, Optional
 # - 说明：如果环境缺少 sympy 或解析失败，会自动退回纯 RAG
 # =========================
 try:
-    from solver_sympy import solve_math_question, make_template_query
+    from v6.solver_sympy import solve_math_question, make_template_query
     HAS_SOLVER = True
 except Exception:
     HAS_SOLVER = False
